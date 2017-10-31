@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block body %}
+
+<p><h2>Laatste {{ tweets|length }} tweets van {{ tweets[0].screen_name }}</h2></p>
+<img src="data:image/png;base64, {{ plot_url }}">
+<table>
+
+  <tr>
+    <th>Sort by</th>
+    <th>Time</th>
+    <th>Favorites</th>
+    <th>Retweets</th>
+    <th>Engagement</th>
+  </th>
+</table>
+{% for tweet in tweets %}
+  <div class='tweet' id={{ tweet.id }}>
+    <table>
+        <tr><p><em>"{{ tweet.tweetText }}"</em></p></tr>
+      <tr>
+        <th>Retweets</th>
+        <th>Favorites</th>
+        <th>Followers</th>
+      </tr>
+
+      <tr>
+        <td>{{ tweet.retweet_count }}</td>
+        <td>{{ tweet.favorite_count }}</td>
+        <td>{{ tweet.followers_count  }}</td>
+      </tr>
+
+      <tr>
+        <td><em>{{ tweet.created_at }}</em></td>
+        <td></td>
+        <td></td>
+      <tr>
+    </table>
+
+  </div>
+  <hr>
+{% else %}
+  <p>No results</p>
+{% endfor %}
+  <div>
+  <p><a href='\'>Terug</a></p>
+</div>
+</div>
+{% endblock %}
