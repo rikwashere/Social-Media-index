@@ -4,12 +4,26 @@ from bs4 import BeautifulSoup
 from keys import retrieveKeys
 from datetime import datetime
 import requests
+import sqlite3
 import pickle
 import json
 import time
 import sys
 import re
 import os
+
+def connectTwitter():
+	auth = retrieveKeys()
+
+	print 'Authenticating with Twitter... ', 
+	twitter = Twython(auth['APP_KEY'], auth['APP_SECRET'])
+
+	if twitter:
+		print 'Authenticated.'
+	else:
+		sys.exit('Error with Twitter API')
+
+	return twitter
  	
 def getMaxTweets(screen_name):
 	""" Finds number of tweets by scraping the web page of the Twitter profile"""
@@ -18,8 +32,8 @@ def getMaxTweets(screen_name):
 	
 	# if 404: exit
 	if html.status_code == 404:
-		sys.exit('404: Handle "%s" does not exist' % screen_name)
-		
+		return('404: Handle "%s" does not exist' % screen_name)
+
 	# get max num tweets
 	soup = BeautifulSoup(html.content, 'html.parser')
 	try:
@@ -41,68 +55,27 @@ def getMaxTweets(screen_name):
 			'num_tweets': int(num_tweets)
 			}
 	
-def crawlList(owner, slug):
-	twitter = connectTwitter()
-
-	data = twitter.get_list_members(owner_screen_name=owner, count=5000, slug=slug)
-
-	accounts = data['users']	
-
-	print slug, 'has %i accounts' % len(data['users'])
-	return [account['screen_name'] for account in accounts if account['protected'] != True]
-	
 
 def crawlAccount(target):
 	""" crawl targeted twitter account, save tweets to SQL """
-
-	# check if accounts has been crawled before
-	# list files in dir
-	files = [f for f in os.listdir('data') if os.path.isfile('data/' + f)]
-
-	if os.path.isfile('banned.p'):
-		if target in pickle.load(open('banned.p', 'rb')):
-			print '@%s is banned: has account, but zero tweets.' % target
-			return
-
-	""" Hier een keer bouwen dat als data ouder dan een dag is ff update """
 		
 	print 'Crawling tweets from @%s...' % target
 	data = getMaxTweets(target)
 
 	num_tweets = data['num_tweets']
 	lis = data['lis']
-
-	raw_data = []
-
 	twitter = connectTwitter()	
 	
 	print '%s tweeted %i times. Need %i requests.' % (target, data['num_tweets'], 1 + (data['num_tweets']/200))
-		
+	
+	tweets = []
 	for i in range(num_tweets/200 + 1):
 		user_timeline = twitter.get_user_timeline(screen_name=target, count=200, max_id=lis[-1], include_rts=False, exclude_replies=True)
 	
 		for tweet in user_timeline:
 				
-			lis.append(tweet['id'])
-			
-			# save to SQL
-			processTweet(target, tweet)
-	return raw_data
-
-def connectTwitter():
-	auth = retrieveKeys()
-
-	print 'Authenticating with Twitter... ', 
-	twitter = Twython(auth['APP_KEY'], auth['APP_SECRET'])
-
-	if twitter:
-		print 'Authenticated.'
-	else:
-		sys.exit('Error with Twitter API')
-
-	return twitter
-
-if __name__ == '__main__':
-	target = raw_input('Enter a handle! (hit enter to quit)\n> ')
-	data = crawlAccount(target)
-	print 'Found %i tweets for %s' % (len(data), target)
+			lis.append(tweet['id'])			
+			tweets.append(tweet)
+		if len(tweets) > 1000:
+			return tweets
+	return tweets

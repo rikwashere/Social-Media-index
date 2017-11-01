@@ -1,5 +1,4 @@
 from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, jsonify
-
 from scraper import crawlAccount
 import matplotlib.pyplot as plt
 from datetime import datetime
@@ -22,6 +21,34 @@ app.config.update(dict(
 
 ))
 app.config.from_envvar('FLASKR_SETTINGS', silent=True)
+
+
+class Tweet():
+    def __init__(self, tweet):
+        self.tweetText = tweet['text']
+        self.id = tweet['id']
+        self.retweet_count = tweet['retweet_count']
+        self.favorite_count = tweet['favorite_count']
+        self.created_at = tweet['created_at']
+        self.screen_name = tweet['user']['screen_name']
+        self.followers_count = tweet['user']['followers_count']
+
+    def insert(self):
+        with get_db() as con:
+            cur = con.cursor()
+            cur.execute("INSERT INTO tweets (screen_name, followers_count, tweetText, id, favorite_count, retweet_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+                    (
+                    self.screen_name, 
+                    self.followers_count, 
+                    self.tweetText, 
+                    self.id, 
+                    self.favorite_count, 
+                    self.retweet_count, 
+                    self.created_at
+                    )   
+                )
+        con.commit()
+
 
 def connect_db():
     """Connects to the specific database."""
@@ -59,8 +86,8 @@ def to_datetime(datestring):
 
     return mk_dt(unformatted)
 
-
 def plot(data):
+    print 'Receiving %i lines to plot...' % len(data)
     dates = []
     retweets = []
     favorites = []
@@ -73,13 +100,12 @@ def plot(data):
     img = io.BytesIO()
 
     df = pd.DataFrame()
-
     df['datetime'] = dates
-    df.index = df['datetime'] 
     df['retweets'] = retweets
     df['favorites'] = favorites
-    df.resample('d').sum()
+    df.index = pd.DatetimeIndex(dates)
 
+    df.resample('d').sum()
     df.plot.line()
 
     plt.savefig(img, format='png')
@@ -99,16 +125,38 @@ def close_db(error):
 def home():
     return render_template('tweets.html')
 
-@app.route('/<handle>')
-def profile_page(handle):
-    db = get_db()
-    tweets = query_db('SELECT * FROM tweets WHERE screen_name = ?', (handle, ))
+@app.route('/load/<screen_name>')
+def profile_page(screen_name):
+
+    not_allowed = ['favicon.ico']   
+    if screen_name in not_allowed:
+        return render_template('error.html', screen_name=screen_name), 404
+
+    print 'Query: Twitter handle %s...' % screen_name
+
+    if not os.path.isfile('smi.db'):
+        conn = sqlite3.connect('smi.db')
+        c = conn.cursor()
+        c.execute('''CREATE TABLE tweets (screen_name text, followers_count int, tweetText text, id int, favorite_count int, retweet_count int, created_at date)''')
+
+    tweets = query_db('SELECT * FROM tweets WHERE screen_name = ?', [screen_name])
+    print '%i tweets by %s in database...' % (len(tweets), screen_name)
 
     if len(tweets) == 0:
-        crawlAccount(handle)
-        tweets = query_db('SELECT * FROM tweets WHERE screen_name = ?', (handle, ))
-    
-    data = query_db('SELECT created_at, retweet_count, favorite_count FROM tweets WHERE screen_name = ?', (handle,))
+        tweets = crawlAccount(screen_name)    
+
+        print 'Finished crawling %s. Found %i tweets. Saving...' % (screen_name, len(tweets)),
+        for tweet in tweets:
+            Tweet(tweet).insert()
+        print 'Done.'
+
+    with get_db() as con:
+        data = query_db('SELECT created_at, retweet_count, favorite_count FROM tweets WHERE screen_name = ?', [screen_name])
+        tweets = query_db('SELECT * FROM tweets WHERE screen_name = ?', [screen_name])
+
+    print data, tweets
+
+    print '%i tweets by %s in database...' % (len(tweets), screen_name)
     return render_template('tweets.html', tweets=tweets, plot_url=plot(data))
 
 if __name__ == '__main__':
