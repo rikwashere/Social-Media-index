@@ -76,6 +76,4 @@ def crawlAccount(target):
 				
 			lis.append(tweet['id'])			
 			tweets.append(tweet)
-		if len(tweets) > 1000:
-			return tweets
 	return tweets

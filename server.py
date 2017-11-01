@@ -22,7 +22,6 @@ app.config.update(dict(
 ))
 app.config.from_envvar('FLASKR_SETTINGS', silent=True)
 
-
 class Tweet():
     def __init__(self, tweet):
         self.tweetText = tweet['text']
@@ -30,11 +29,11 @@ class Tweet():
         self.retweet_count = tweet['retweet_count']
         self.favorite_count = tweet['favorite_count']
         self.created_at = tweet['created_at']
-        self.screen_name = tweet['user']['screen_name']
+        self.screen_name = tweet['user']['screen_name'].lower()
         self.followers_count = tweet['user']['followers_count']
 
     def insert(self):
-        with get_db() as con:
+        with sqlite3.connect('smi.db') as con:
             cur = con.cursor()
             cur.execute("INSERT INTO tweets (screen_name, followers_count, tweetText, id, favorite_count, retweet_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", 
                     (
@@ -49,28 +48,6 @@ class Tweet():
                 )
         con.commit()
 
-
-def connect_db():
-    """Connects to the specific database."""
-    rv = sqlite3.connect(app.config['DATABASE'])
-    rv.row_factory = sqlite3.Row
-    return rv
-
-def get_db():
-    """Opens a new database connection if there is none yet for the
-    current application context.
-    """
-    if not hasattr(g, 'sqlite_db'):
-        g.sqlite_db = connect_db()
-
-    g.sqlite_db.row_factory = sqlite3.Row
-    return g.sqlite_db
-
-def query_db(query, args=(), one=False):
-	cur = get_db().execute(query, args)
-	rv = cur.fetchall()
-	cur.close()
-	return (rv[0] if rv else None) if one else rv    
 
 def to_datetime(datestring):
     unformatted = datestring
@@ -127,19 +104,28 @@ def home():
 
 @app.route('/load/<screen_name>')
 def profile_page(screen_name):
+    screen_name = screen_name.lower()
+    not_allowed = ['favicon.ico']
+    keys = ['screen_name', 'followers_count', 'tweetText', 'id', 'favorite_count', 'retweet_count', 'created_at']
 
-    not_allowed = ['favicon.ico']   
     if screen_name in not_allowed:
         return render_template('error.html', screen_name=screen_name), 404
 
     print 'Query: Twitter handle %s...' % screen_name
-
+    
+    # check for database
     if not os.path.isfile('smi.db'):
         conn = sqlite3.connect('smi.db')
         c = conn.cursor()
         c.execute('''CREATE TABLE tweets (screen_name text, followers_count int, tweetText text, id int, favorite_count int, retweet_count int, created_at date)''')
 
-    tweets = query_db('SELECT * FROM tweets WHERE screen_name = ?', [screen_name])
+    # establishing connection to db
+    conn = sqlite3.connect('smi.db')
+    c = conn.cursor()
+
+    c.execute('SELECT * FROM tweets where screen_name = ?', (screen_name, ))
+
+    tweets = c.fetchall()
     print '%i tweets by %s in database...' % (len(tweets), screen_name)
 
     if len(tweets) == 0:
@@ -150,14 +136,20 @@ def profile_page(screen_name):
             Tweet(tweet).insert()
         print 'Done.'
 
-    with get_db() as con:
-        data = query_db('SELECT created_at, retweet_count, favorite_count FROM tweets WHERE screen_name = ?', [screen_name])
-        tweets = query_db('SELECT * FROM tweets WHERE screen_name = ?', [screen_name])
+    with sqlite3.connect('smi.db') as con:
+        c.execute('SELECT created_at, retweet_count, favorite_count FROM tweets WHERE screen_name = ?', (screen_name, ))
+        data = c.fetchall()
 
-    print data, tweets
+        tweets = c.execute('SELECT * FROM tweets WHERE screen_name = ?', (screen_name, ))
+        tweets = c.fetchall()
+
+    tweet_dicts = []
+    for tweet in tweets:
+        td = dict(zip(keys, tweet))
+        tweet_dicts.append(td)
 
     print '%i tweets by %s in database...' % (len(tweets), screen_name)
-    return render_template('tweets.html', tweets=tweets, plot_url=plot(data))
+    return render_template('tweets.html', tweets=tweet_dicts, plot_url=plot(data))
 
 if __name__ == '__main__':
     app.run(debug=True, use_reloader=True)
