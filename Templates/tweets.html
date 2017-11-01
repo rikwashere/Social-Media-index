@@ -3,15 +3,39 @@
 {% block body %}
 
 <p><h2>Laatste {{ tweets|length }} tweets van {{ tweets[0].screen_name }}:</h2></p>
+<table>
+  <tr> 
+    <th>Naam</th>
+    <th>Aangemaakt op</th>
+    <th>Gebruikersnaam</th>
+  </tr>
+  <tr>
+    <td>{{ user.name }}</td>
+    <td>{{ user.created_at }}</td>
+    <td>{{ user.screen_name }}</td>
+  </tr>
+  <tr>
+    <th>Omschrijving</th>
+    <th>Status</th>
+    <th>Locatie</th>
+  </tr>
+  <tr>
+    <td>{{ user.description}}</td>
+    <td>{{ 'Geverifieerd' if user.verified == True else 'Ongeverifieerd' }}</td>
+    <td>{{ user.location }}</td>
+  </tr>
+</table>
+
 <img src="data:image/png;base64, {{ plot_url }}">
+
 <table>
 
   <tr>
     <th>Sort by</th>
-    <th>Time</th>
-    <th>Favorites</th>
-    <th>Retweets</th>
-    <th>Engagement</th>
+    <th><a href='created_at'>Time</a></th>
+    <th><a href='favorite_count'>Favorites</a></th>
+    <th><a href='retweet_count'>Retweets</a></th>
+    <th><a href='engagement'>Engagement</a></th>
   </th>
 </table>
 {% for tweet in tweets %}

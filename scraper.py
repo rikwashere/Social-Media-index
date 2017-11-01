@@ -36,14 +36,7 @@ def getMaxTweets(screen_name):
 
 	# get max num tweets
 	soup = BeautifulSoup(html.content, 'html.parser')
-	try:
-		num_tweets = soup.find('a', {'data-nav' : 'tweets'})['title']
-	except TypeError:
-		banned = pickle.load(open('data/banned.p', 'rb'))
-		banned.append(screen_name)
-		pickle.dump(banned, open('banned.p', 'wb'))
-		return None
-
+	num_tweets = soup.find('a', {'data-nav' : 'tweets'})['title']
 	num_tweets = re.sub('[a-zA-Z.]', '', num_tweets)
 	
 	# find last tweet
@@ -55,6 +48,11 @@ def getMaxTweets(screen_name):
 			'num_tweets': int(num_tweets)
 			}
 	
+def crawlProfile(screen_name):
+	twitter = connectTwitter()
+	
+	user = twitter.show_user(screen_name=screen_name)
+	return user
 
 def crawlAccount(target):
 	""" crawl targeted twitter account, save tweets to SQL """
@@ -64,6 +62,7 @@ def crawlAccount(target):
 
 	num_tweets = data['num_tweets']
 	lis = data['lis']
+	
 	twitter = connectTwitter()	
 	
 	print '%s tweeted %i times. Need %i requests.' % (target, data['num_tweets'], 1 + (data['num_tweets']/200))

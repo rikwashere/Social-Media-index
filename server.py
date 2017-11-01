@@ -1,9 +1,10 @@
 from flask import Flask, request, session, g, redirect, url_for, abort, render_template, flash, jsonify
-from scraper import crawlAccount
+from scraper import crawlAccount, crawlProfile
 import matplotlib.pyplot as plt
 from datetime import datetime
 import pandas as pd
 import numpy as np
+import requests
 import sqlite3
 import base64
 import os
@@ -63,8 +64,14 @@ def to_datetime(datestring):
 
     return mk_dt(unformatted)
 
-def plot(data):
-    print 'Receiving %i lines to plot...' % len(data)
+def plot(screen_name):
+    with sqlite3.connect('smi.db') as con:
+        c = con.cursor() 
+        c.execute('SELECT created_at, retweet_count, favorite_count FROM tweets WHERE screen_name = ?', (screen_name, ))
+        data = c.fetchall()
+
+    print 'Found %i lines to plot...' % len(data)
+
     dates = []
     retweets = []
     favorites = []
@@ -92,6 +99,16 @@ def plot(data):
 
     return plot_url
 
+def dictify(tweets):
+    keys = ['screen_name', 'followers_count', 'tweetText', 'id', 'favorite_count', 'retweet_count', 'created_at']
+
+    tweet_dicts = []
+    for tweet in tweets:
+        td = dict(zip(keys, tweet))
+        tweet_dicts.append(td)
+
+    return tweet_dicts
+
 @app.teardown_appcontext
 def close_db(error):
     """Closes the database again at the end of the request."""
@@ -102,14 +119,16 @@ def close_db(error):
 def home():
     return render_template('tweets.html')
 
-@app.route('/load/<screen_name>')
+@app.route('/load/<screen_name>/')
 def profile_page(screen_name):
     screen_name = screen_name.lower()
     not_allowed = ['favicon.ico']
-    keys = ['screen_name', 'followers_count', 'tweetText', 'id', 'favorite_count', 'retweet_count', 'created_at']
 
-    if screen_name in not_allowed:
-        return render_template('error.html', screen_name=screen_name), 404
+    html = requests.get('http://twitter.com/' + screen_name)
+
+    if screen_name in not_allowed or html.status_code == '404':
+        print 'ERROR'
+        return render_template('error.html', screen_name=screen_name, reason='Handle does not exist or is not allowed'), 404
 
     print 'Query: Twitter handle %s...' % screen_name
     
@@ -137,19 +156,31 @@ def profile_page(screen_name):
         print 'Done.'
 
     with sqlite3.connect('smi.db') as con:
-        c.execute('SELECT created_at, retweet_count, favorite_count FROM tweets WHERE screen_name = ?', (screen_name, ))
-        data = c.fetchall()
-
         tweets = c.execute('SELECT * FROM tweets WHERE screen_name = ?', (screen_name, ))
         tweets = c.fetchall()
 
-    tweet_dicts = []
-    for tweet in tweets:
-        td = dict(zip(keys, tweet))
-        tweet_dicts.append(td)
-
+    tweet_dicts = dictify(tweets)
     print '%i tweets by %s in database...' % (len(tweets), screen_name)
-    return render_template('tweets.html', tweets=tweet_dicts, plot_url=plot(data))
+    return render_template('tweets.html', tweets=tweet_dicts, plot_url=plot(screen_name), user=crawlProfile(screen_name))
+
+@app.route('/load/<screen_name>/<order_by>')
+def sort_by(screen_name, order_by):
+    print 'Sorting %s by %s...' % (screen_name, order_by)
+    if order_by not in ['favorite_count', 'created_at', 'retweet_count', 'engagement']:
+        return render_template('error.html', screen_name='screen_name', reason='Sorting by non-existing method'), 404
+    screen_name = screen_name.lower()
+
+    with sqlite3.connect('smi.db') as con:
+        c = con.cursor()
+        c.execute('SELECT * FROM tweets WHERE screen_name = ? ORDER BY ? DESC', (screen_name, order_by, ))
+        tweets = c.fetchall()
+
+    tweet_dicts = dictify(tweets)
+
+    tweet_dicts = sorted(tweet_dicts, key=lambda k: k[order_by], reverse=True) 
+
+    return render_template('tweets.html', tweets=tweet_dicts, plot_url=plot(screen_name), user=crawlProfile(screen_name))
+
 
 if __name__ == '__main__':
     app.run(debug=True, use_reloader=True)
