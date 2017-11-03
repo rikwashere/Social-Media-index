@@ -24,14 +24,23 @@ app.config.update(dict(
 app.config.from_envvar('FLASKR_SETTINGS', silent=True)
 
 class Tweet():
-    def __init__(self, tweet):
-        self.tweetText = tweet['text']
-        self.id = tweet['id']
-        self.retweet_count = tweet['retweet_count']
-        self.favorite_count = tweet['favorite_count']
-        self.created_at = tweet['created_at']
-        self.screen_name = tweet['user']['screen_name'].lower()
-        self.followers_count = tweet['user']['followers_count']
+    def __init__(self, tweet, json_check):
+        if json_check == True:
+            self.tweetText = tweet['text']
+            self.id = tweet['id']
+            self.retweet_count = tweet['retweet_count']
+            self.favorite_count = tweet['favorite_count']
+            self.created_at = tweet['created_at']
+            self.screen_name = tweet['user']['screen_name'].lower()
+            self.followers_count = tweet['user']['followers_count']
+        else:
+            self.screen_name = tweet[0].lower()
+            self.followers_count = tweet[1]
+            self.tweetText = tweet[2]
+            self.id = tweet[3]
+            self.favorite_count = tweet[4]
+            self.retweet_count = tweet[5]
+            self.created_at = tweet[6]
 
     def insert(self):
         with sqlite3.connect('smi.db') as con:
@@ -48,6 +57,9 @@ class Tweet():
                     )   
                 )
         con.commit()
+
+    def dicitify(self):
+        return self.__dict__
 
 
 def to_datetime(datestring):
@@ -99,16 +111,6 @@ def plot(screen_name):
 
     return plot_url
 
-def dictify(tweets):
-    keys = ['screen_name', 'followers_count', 'tweetText', 'id', 'favorite_count', 'retweet_count', 'created_at']
-
-    tweet_dicts = []
-    for tweet in tweets:
-        td = dict(zip(keys, tweet))
-        tweet_dicts.append(td)
-
-    return tweet_dicts
-
 @app.teardown_appcontext
 def close_db(error):
     """Closes the database again at the end of the request."""
@@ -138,28 +140,47 @@ def profile_page(screen_name):
         c = conn.cursor()
         c.execute('''CREATE TABLE tweets (screen_name text, followers_count int, tweetText text, id int, favorite_count int, retweet_count int, created_at date)''')
 
-    # establishing connection to db
-    conn = sqlite3.connect('smi.db')
-    c = conn.cursor()
+    # establishing connection to db, checking for existing tweets
+    with sqlite3.connect('smi.db') as conn:
+        c = conn.cursor()
+        c.execute('SELECT * FROM tweets where screen_name = ?', (screen_name, ))
+        tweets = c.fetchall()
 
-    c.execute('SELECT * FROM tweets where screen_name = ?', (screen_name, ))
-
-    tweets = c.fetchall()
+    tweet_objs = [Tweet(tweet, json_check=False) for tweet in tweets]
     print '%i tweets by %s in database...' % (len(tweets), screen_name)
 
+    # if zero tweets...
     if len(tweets) == 0:
-        tweets = crawlAccount(screen_name)    
+        # ... commence crawling since start
+        tweets = crawlAccount(screen_name, since_id=None, exisiting_tweets=None)    
 
         print 'Finished crawling %s. Found %i tweets. Saving...' % (screen_name, len(tweets)),
         for tweet in tweets:
-            Tweet(tweet).insert()
+            Tweet(tweet, json_check=True).insert()
+        print 'Done.'
+    else:
+        # if tweets exists: check for update...
+
+        # find max id in db
+        tweet_dicts = [tweet_obj.dicitify() for tweet_obj in tweet_objs]
+        max_id_in_db = sorted(tweet_dicts, key=lambda k: k['id'], reverse=True)[0]['id']
+
+        # crawl from max_id in db 
+        tweets = crawlAccount(screen_name, since_id=max_id_in_db, exisiting_tweets=len(tweet_dicts))
+
+        # store
+        print 'Finished crawling %s. Found %i new tweets. Saving...' % (screen_name, len(tweets)),
+        for tweet in tweets:
+            Tweet(tweet, json_check=True).insert()
         print 'Done.'
 
+    # grabbing all tweets from db including new ones
     with sqlite3.connect('smi.db') as con:
-        tweets = c.execute('SELECT * FROM tweets WHERE screen_name = ?', (screen_name, ))
-        tweets = c.fetchall()
+            tweets = c.execute('SELECT * FROM tweets WHERE screen_name = ?', (screen_name, ))
+            tweets = c.fetchall()
+            tweet_objs = [Tweet(tweet, json_check=False) for tweet in tweets]
 
-    tweet_dicts = dictify(tweets)
+    tweet_dicts = [tweet_obj.dicitify() for tweet_obj in tweet_objs]
     print '%i tweets by %s in database...' % (len(tweets), screen_name)
     return render_template('tweets.html', tweets=tweet_dicts, plot_url=plot(screen_name), user=crawlProfile(screen_name))
 
@@ -170,12 +191,14 @@ def sort_by(screen_name, order_by):
         return render_template('error.html', screen_name='screen_name', reason='Sorting by non-existing method'), 404
     screen_name = screen_name.lower()
 
+    tweet_dicts = []
     with sqlite3.connect('smi.db') as con:
         c = con.cursor()
         c.execute('SELECT * FROM tweets WHERE screen_name = ? ORDER BY ? DESC', (screen_name, order_by, ))
         tweets = c.fetchall()
 
-    tweet_dicts = dictify(tweets)
+    for tweet in tweets:
+        tweet_dicts.append(Tweet(tweet, json_check=False).dicitify())
 
     tweet_dicts = sorted(tweet_dicts, key=lambda k: k[order_by], reverse=True) 
 

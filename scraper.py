@@ -54,16 +54,32 @@ def crawlProfile(screen_name):
 	user = twitter.show_user(screen_name=screen_name)
 	return user
 
-def crawlAccount(target):
+def crawlAccount(target, since_id, exisiting_tweets):
 	""" crawl targeted twitter account, save tweets to SQL """
-		
-	print 'Crawling tweets from @%s...' % target
-	data = getMaxTweets(target)
 
+	# get max tweets from Twitter front-end
+	data = getMaxTweets(target)
 	num_tweets = data['num_tweets']
 	lis = data['lis']
-	
+
+	# connect Twitter api
 	twitter = connectTwitter()	
+
+	if not since_id:
+		print 'Crawling tweets from @%s...' % target
+	else:
+		# refreshing
+		tweets = []
+		# calculating how many tweets to be crawled since last time
+		num_tweets_to_be_crawled = num_tweets - exisiting_tweets
+		print 'Need to fetch %i new tweets...' % num_tweets_to_be_crawled
+		for i in range(num_tweets_to_be_crawled/200 + 1):
+			user_timeline = twitter.get_user_timeline(screen_name=target, count=200, since_id=since_id, include_rts=False, exclude_replies=True)
+		
+			for tweet in user_timeline:
+
+				tweets.append(tweet)
+		return tweets
 	
 	print '%s tweeted %i times. Need %i requests.' % (target, data['num_tweets'], 1 + (data['num_tweets']/200))
 	
